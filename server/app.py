@@ -5,6 +5,7 @@ from flask_migrate import Migrate
 from flask import Flask, request, make_response
 from flask_restful import Api, Resource, reqparse
 import os
+from flask import jsonify
 
 from models import db, Vendor, VendorSweet, Sweet
 
@@ -32,78 +33,76 @@ parser.add_argument('sweet_id', type=int, required=True, help='Sweet ID is requi
 def home():
     return '<h1>Code challenge</h1>'
 
-class VendorsResource(Resource):
-    def get(self):
-        vendors = Vendor.query.all()
-        response = [vendor.to_dict() for vendor in vendors]
-        return response
-api.add_resource(VendorsResource, '/vendors')
+def get_vendors():
+    vendors = Vendor.query.all()
+    response = [vendor.to_dict() for vendor in vendors]
+    return jsonify(response), 200
 
-class VendorsByIdResource(Resource):
-    def get(self, vendor_id):
-        vendor = Vendor.query.get(vendor_id)
-        if vendor is None:
-            return {"error": "Vendor not found"}, 404
-        return vendor.to_dict()
-api.add_resource(VendorsByIdResource, '/vendors/<int:vendor_id>')
+app.add_url_rule('/vendors', 'get_vendors', get_vendors)
 
-class SweetsResource(Resource):
-    def get(self):
-        sweets = Sweet.query.all()
-        response = [sweet.to_dict() for sweet in sweets]
-        return response
-api.add_resource(SweetsResource, '/sweets')
 
-class SweetsByIdResource(Resource):
-    def get(self, sweet_id):
-        sweet = Sweet.query.get(sweet_id)
-        if sweet is None:
-            return {"error": "Sweet not found"}, 404
-        return sweet.to_dict()
-api.add_resource(SweetsByIdResource, '/sweets/<int:sweet_id>')
+def get_vendor_by_id(vendor_id):
+    vendor = Vendor.query.get(vendor_id)
+    if vendor is None:
+        return jsonify({"error": "Vendor not found"}), 404
+    return jsonify(vendor.to_dict())
 
-class VendorSweetsResource(Resource):
-    def post(self):
-        args = parser.parse_args()
+app.add_url_rule('/vendors/<int:vendor_id>', 'get_vendor_by_id', get_vendor_by_id)
 
-        session = db.session
+def get_sweets():
+    sweets = Sweet.query.all()
+    response = [sweet.to_dict() for sweet in sweets]
+    return jsonify(response)
+app.add_url_rule('/sweets', 'get_sweets', get_sweets)
 
-        vendor = session.get(Vendor, args['vendor_id'])
-        sweet = session.get(Sweet, args['sweet_id'])
+def get_sweet_by_id(sweet_id):
+    sweet = Sweet.query.get(sweet_id)
+    if sweet is None:
+        return jsonify({"error": "Sweet not found"}), 404
+    return jsonify(sweet.to_dict())
 
-        if vendor is None or sweet is None:
-            return {'error': 'Invalid vendor_id or sweet_id'}, 400
+app.add_url_rule('/sweets/<int:sweet_id>', 'get_sweet_by_id', get_sweet_by_id)
 
-        vendor_sweet = VendorSweet(
-            vendor_id=args['vendor_id'],
-            sweet_id=args['sweet_id'],
-            price=args['price']
-        )
+def create_vendor_sweet():
+    args = parser.parse_args()
 
-        session.add(vendor_sweet)
+    session = db.session
+
+    vendor = session.get(Vendor, args['vendor_id'])
+    sweet = session.get(Sweet, args['sweet_id'])
+
+    if vendor is None or sweet is None:
+        return jsonify({'error': 'Invalid vendor_id or sweet_id'}), 400
+
+    vendor_sweet = VendorSweet(
+        vendor_id=args['vendor_id'],
+        sweet_id=args['sweet_id'],
+        price=args['price']
+    )
+
+    session.add(vendor_sweet)
+    session.commit()
+
+    response = {
+        'id': vendor_sweet.id,
+        'name': sweet.name,  
+        'price': vendor_sweet.price
+    }
+    return jsonify(response), 201
+app.add_url_rule('/vendor_sweets', 'create_vendor_sweet', create_vendor_sweet, methods=['POST'])
+
+def delete_vendor_sweet(vendor_sweet_id):
+    vendor_sweet = VendorSweet.query.get(vendor_sweet_id)
+
+    session = db.session
+    if vendor_sweet:
+        session.delete(vendor_sweet)
         session.commit()
+        return jsonify({"message": f"VendorSweet with ID {vendor_sweet_id} successfully deleted"}), 200 
+    else:
+        return jsonify({"error": "VendorSweet not found"}), 404  
 
-        response = {
-            'id': vendor_sweet.id,
-            'name': sweet.name,  
-            'price': vendor_sweet.price
-        }
-        return response, 201
-api.add_resource(VendorSweetsResource, '/vendor_sweets')
-
-class VendorSweetResource(Resource):
-    def delete(self, vendor_sweet_id):
-        vendor_sweet = VendorSweet.query.get(vendor_sweet_id)
-
-        session = db.session
-        if vendor_sweet:
-            session.delete(vendor_sweet)
-            session.commit()
-            return {"message": f"VendorSweet with ID {vendor_sweet_id} successfully deleted"}, 200 
-        else:
-            return {"error": "VendorSweet not found"}, 404  
-
-api.add_resource(VendorSweetResource, '/vendor_sweets/<int:vendor_sweet_id>')
+app.add_url_rule('/vendor_sweets/<int:vendor_sweet_id>', 'delete_vendor_sweet', delete_vendor_sweet, methods=['DELETE'])
 
 
 if __name__ == '__main__':
